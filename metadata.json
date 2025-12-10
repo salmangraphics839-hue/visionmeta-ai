@@ -1,0 +1,5 @@
+{
+  "name": "VisionMeta AI",
+  "description": "A React application powered by OpenAI GPT that automatically generates optimized titles, descriptions, and keywords for stock photography, with built-in support for embedding metadata directly into JPEG files.",
+  "requestFramePermissions": []
+}
