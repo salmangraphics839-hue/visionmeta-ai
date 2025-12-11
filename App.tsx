@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
-import { Download, Play, Trash2, Image as ImageIcon, Loader2, Bookmark, ChevronDown, Check, FileText, Search, X, AlertTriangle, Globe, XCircle, Tag, Grid, List, Edit, ArrowLeft, Square, CheckSquare, Video, LogOut, User, Lock, Mail, Settings } from 'lucide-react';
+import { Download, Play, Trash2, Image as ImageIcon, Loader2, Bookmark, ChevronDown, Check, FileText, Search, X, AlertTriangle, Globe, XCircle, Tag, Grid, List, Edit, ArrowLeft, Square, CheckSquare, Video, LogOut, User, Lock, Mail, Settings, BarChart3 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 
@@ -10,6 +10,7 @@ import MetadataCard from './components/MetadataCard';
 import BatchDashboard from './components/BatchDashboard';
 import ChatBot from './components/ChatBot';
 import MarketResearch from './components/MarketResearch';
+import AssetTracker from './components/AssetTracker';
 import { StockFile, FileStatus, StockMetadata, MetadataPreset } from './types';
 import { generateImageMetadata } from './services/openaiService';
 import { embedMetadata, fileToBase64, getPreviewUrl } from './services/imageService';
@@ -44,6 +45,7 @@ const App: React.FC = () => {
 
   // Features
   const [showMarketResearch, setShowMarketResearch] = useState(false);
+  const [showAssetTracker, setShowAssetTracker] = useState(false);
 
   // Generation Settings
   const [showGenSettings, setShowGenSettings] = useState(false);
@@ -598,6 +600,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-900 text-slate-200 pb-20 relative">
       <ChatBot apiKey="" />
       <MarketResearch apiKey="" isOpen={showMarketResearch} onClose={() => setShowMarketResearch(false)} />
+      <AssetTracker isOpen={showAssetTracker} onClose={() => setShowAssetTracker(false)} />
       
       {/* Header */}
       <header className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 sticky top-0 z-50">
@@ -635,6 +638,13 @@ const App: React.FC = () => {
                className="hidden md:flex text-xs text-slate-300 hover:text-white items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-slate-800 transition-colors border border-slate-700 hover:border-emerald-500"
              >
                 <Globe className="w-3.5 h-3.5 text-emerald-400" /> Trends
+             </button>
+
+             <button
+               onClick={() => setShowAssetTracker(true)}
+               className="hidden md:flex text-xs text-slate-300 hover:text-white items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-slate-800 transition-colors border border-slate-700 hover:border-orange-500"
+             >
+                <BarChart3 className="w-3.5 h-3.5 text-orange-400" /> Spy
              </button>
 
              {/* USER PROFILE & CREDITS */}

@@ -218,7 +218,53 @@ serve(async (req) => {
                 }
             }
         }
+// ... inside the serve handler, after the first 'if' block for generate_metadata ...
 
+    // === STRATEGY 1.5: ASSET TRACKER (SCRAPER) ===
+    else if (action === 'track_asset') {
+        const { url } = payload;
+        if (!url || !url.includes('stock.adobe.com')) {
+            throw new Error("Invalid URL. Please provide a valid Adobe Stock link.");
+        }
+
+        // 1. Fetch the HTML with a real browser User-Agent to avoid being blocked
+        const resp = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5'
+            }
+        });
+
+        if (!resp.ok) throw new Error("Failed to reach Adobe Stock. Check the URL.");
+        const html = await resp.text();
+
+        // 2. SCRAPING MAGIC: Look for the hidden JSON data
+        // Adobe usually hides this in a variable like window.__ReduxState__ or specific JSON keys
+        // We will look for standard "popularity" or "downloads" patterns.
+        
+        // Pattern A: Look for "content-media-download-count" or similar explicit keys
+        const downloadMatch = html.match(/"download_count":\s*(\d+)/) || 
+                              html.match(/"num_downloads":\s*(\d+)/) ||
+                              html.match(/"downloads":\s*(\d+)/);
+
+        // Pattern B: Look for "view_count"
+        const viewMatch = html.match(/"view_count":\s*(\d+)/) || 
+                          html.match(/"num_views":\s*(\d+)/);
+        
+        // Pattern C: Fallback to searching for the raw number near keywords if keys change
+        // (This is a simplified example. For production, you might need a stronger Regex based on current Adobe HTML)
+        
+        result = {
+            downloads: downloadMatch ? parseInt(downloadMatch[1]) : null,
+            views: viewMatch ? parseInt(viewMatch[1]) : null,
+            // If we can't find exact numbers, we return a flag so the UI knows
+            foundData: !!(downloadMatch || viewMatch),
+            message: downloadMatch ? "Data found successfully." : "Could not extract specific numbers. Adobe may have changed their code."
+        };
+    }
+
+// ... continue with === STRATEGY 2 ...
         // === STRATEGY 2: TEXT PIPELINE (SUGGESTIONS / CHAT / RESEARCH) ===
         else if (['chat', 'market_research', 'suggest_keywords'].includes(action)) {
              let prompt = "";

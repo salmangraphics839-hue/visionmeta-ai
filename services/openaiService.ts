@@ -1,7 +1,7 @@
 import { supabase } from '../supabaseClient';
 import { StockMetadata, MarketTrend, ChatMessage } from "../types";
 
-// Helper to handle the Supabase Invoke
+// Helper to handle the Supabase Invoke for the MAIN APP (Metadata, etc.)
 // We send an 'action' parameter so one Edge Function can handle all different tasks
 const invokeVisionMetaEdgeFunction = async (action: string, payload: any) => {
   const { data, error } = await supabase.functions.invoke('generate-metadata', {
@@ -100,4 +100,26 @@ export const sendChatMessage = async (
 ): Promise<string> => {
   const response = await invokeVisionMetaEdgeFunction('chat', { history });
   return response.message || "";
+};
+
+// 7. Asset Tracker (NEW - Points to the SEPARATE test function)
+export const trackAsset = async (
+  _ignoredApiKey: string,
+  url: string
+): Promise<{ downloads: number | null; views: number | null; message: string }> => {
+  // NOTE: Calling 'asset-tracker' function, NOT 'generate-metadata'
+  const { data, error } = await supabase.functions.invoke('asset-tracker', {
+    body: { url }
+  });
+
+  if (error) {
+    console.error("Tracker Error:", error);
+    throw new Error("Failed to connect to tracker service.");
+  }
+  
+  if (data?.error) {
+    throw new Error(data.error);
+  }
+
+  return data;
 };
