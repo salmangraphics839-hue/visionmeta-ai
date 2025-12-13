@@ -52,3 +52,8 @@ export interface MarketTrend {
   content: string;
   sources: GroundingSource[];
 }
+// ... existing types
+export interface StockFile {
+  // ... existing fields
+  source?: 'upload' | 'generated'; // Add this line
+}
