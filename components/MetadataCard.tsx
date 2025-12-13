@@ -51,13 +51,12 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // --- SAFETY BLOCK: CRASH PREVENTION ---
-  // This ensures we ALWAYS have valid data to render, even if the API failed or returned null.
-  // This fixes the "Blank Screen" when clicking Edit on a failed image.
+  // Fixes the "Blank Screen" by providing default values if metadata is null
   const safeMetadata = item.metadata || { title: "", description: "", keywords: [] };
   const safeKeywords = Array.isArray(safeMetadata.keywords) ? safeMetadata.keywords : [];
 
   useEffect(() => {
-    // We load from safeMetadata instead of item.metadata to prevent undefined errors
+    // Load data from SAFE variables to prevent crash
     setEditTitle(safeMetadata.title);
     setEditDesc(safeMetadata.description);
     setEditKeywords(safeKeywords);
@@ -114,7 +113,7 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
   };
 
   const handleSuggest = async (type: KeywordSuggestionType) => {
-    // Allow suggesting even if metadata is partial
+    // Allow suggesting even if partial metadata
     setIsSuggesting(true);
     setSuggestionType(type);
     setSuggestedKeywords([]);
@@ -289,8 +288,8 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
         )}
 
         <div className="p-5 flex-1 flex flex-col gap-4">
-        
-        {/* IDLE STATE */}
+            
+        {/* IDLE */}
         {item.status === FileStatus.IDLE && (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-500 space-y-4 h-full">
                 <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center">
@@ -324,7 +323,7 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
              </div>
         )}
 
-        {/* METADATA VIEW - Using Safe Variables to Prevent Crash */}
+        {/* METADATA VIEW */}
         {item.status === FileStatus.SUCCESS && activeTab === 'metadata' && !isEditing && (
             <>
                 <div className="space-y-1">

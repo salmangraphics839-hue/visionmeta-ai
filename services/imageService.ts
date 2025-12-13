@@ -1,21 +1,23 @@
 import piexif from "piexifjs";
 import { StockMetadata } from "../types";
 
-// --- CONFIGURATION FOR TURBO MODE ---
-const MAX_IMAGE_DIM = 1024;      // Resize standard images to max 1024px
-const MAX_VIDEO_FRAME_DIM = 400; // Resize video frames to 400px (Resulting grid: 800x800)
-const JPEG_QUALITY = 0.7;        // Balance speed and quality
+// --- CONFIGURATION FOR ROBUST MODE ---
+// 2048px is safer for AI Vision models to read small text/details
+const MAX_IMAGE_DIM = 2048;      
+const MAX_VIDEO_FRAME_DIM = 800; // Increased for better video previews
+const JPEG_QUALITY = 0.90;       // High quality to prevent artifacts
 
-// --- HELPER: RESIZE IMAGE (The "Shrink Ray") ---
+// --- HELPER: RESIZE IMAGE ---
 const resizeImageBase64 = (base64Str: string, mimeType: string): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.src = `data:${mimeType};base64,${base64Str}`;
+    
     img.onload = () => {
       let width = img.width;
       let height = img.height;
 
-      // Calculate new dimensions while maintaining aspect ratio
+      // Calculate new dimensions (Aspect Ratio Preserved)
       if (width > height) {
         if (width > MAX_IMAGE_DIM) {
           height *= MAX_IMAGE_DIM / width;
@@ -28,26 +30,51 @@ const resizeImageBase64 = (base64Str: string, mimeType: string): Promise<string>
         }
       }
 
+      // Integer Math is critical for Canvas
+      width = Math.floor(width);
+      height = Math.floor(height);
+
+      // Validation: Prevent 0px images
+      if (width === 0 || height === 0) {
+          console.warn("Resize resulted in 0 dimensions, using original.");
+          resolve(base64Str); // Fallback to original
+          return;
+      }
+
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
-      if (!ctx) { reject(new Error("Canvas context failed")); return; }
+      
+      if (!ctx) { 
+          reject(new Error("Canvas context failed")); 
+          return; 
+      }
 
+      // Force white background (Handling transparent PNGs)
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, width, height);
+      
+      // Draw optimized image
       ctx.drawImage(img, 0, 0, width, height);
       
-      // Export compressed JPEG
+      // Export high-quality JPEG
       const resizedDataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
-      // Remove header to get raw base64
+      
+      // Validate Output
+      if (resizedDataUrl.length < 100) {
+          reject(new Error("Resizing failed: Output too small"));
+          return;
+      }
+
       resolve(resizedDataUrl.split(',')[1]);
     };
-    img.onerror = (e) => reject(e);
+
+    img.onerror = (e) => reject(new Error("Failed to load image for resizing"));
   });
 };
 
-// --- VIDEO PROCESSING UTILS (The Turbo Storyboard) ---
-
-// Extracts 4 frames from a video, RESIZES them for speed, and stitches into a grid
+// --- VIDEO PROCESSING UTILS ---
 const videoToStoryboardBase64 = async (videoFile: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
@@ -56,14 +83,12 @@ const videoToStoryboardBase64 = async (videoFile: File): Promise<string> => {
     video.playsInline = true;
     video.crossOrigin = "anonymous";
 
-    // Wait for metadata to load
     video.onloadedmetadata = async () => {
       const duration = video.duration;
       let width = video.videoWidth;
       let height = video.videoHeight;
       
-      // AGGRESSIVE RESIZING: Shrink frames to MAX_VIDEO_FRAME_DIM (e.g. 400px)
-      // This prevents 4K videos from creating massive payloads that crash the server
+      // Resize video frames if huge
       if (width > height) {
          if (width > MAX_VIDEO_FRAME_DIM) { 
              height *= MAX_VIDEO_FRAME_DIM / width; 
@@ -76,11 +101,13 @@ const videoToStoryboardBase64 = async (videoFile: File): Promise<string> => {
          }
       }
       
-      // Capture points: 10%, 35%, 60%, 85%
+      width = Math.floor(width);
+      height = Math.floor(height);
+
+      // Capture 4 keyframes
       const timePoints = [duration * 0.1, duration * 0.35, duration * 0.6, duration * 0.85];
       
       const canvas = document.createElement('canvas');
-      // 2x2 Grid Layout
       canvas.width = width * 2;
       canvas.height = height * 2;
       const ctx = canvas.getContext('2d');
@@ -95,12 +122,8 @@ const videoToStoryboardBase64 = async (videoFile: File): Promise<string> => {
           video.currentTime = time;
           const onSeek = () => {
             video.removeEventListener('seeked', onSeek);
-            
-            // Grid Position: (0,0), (1,0), (0,1), (1,1)
             const x = (index % 2) * width;
             const y = Math.floor(index / 2) * height;
-            
-            // Draw scaled image directly onto canvas
             ctx.drawImage(video, x, y, width, height);
             res();
           };
@@ -112,13 +135,9 @@ const videoToStoryboardBase64 = async (videoFile: File): Promise<string> => {
         for (let i = 0; i < timePoints.length; i++) {
           await captureFrame(timePoints[i], i);
         }
-        
-        // Export highly compressed JPEG (Small payload = Fast API)
         const base64Url = canvas.toDataURL('image/jpeg', JPEG_QUALITY); 
         const base64Clean = base64Url.includes(',') ? base64Url.split(',')[1] : base64Url;
-        
         resolve(base64Clean);
-        
       } catch (e) {
         reject(e);
       } finally {
@@ -127,26 +146,23 @@ const videoToStoryboardBase64 = async (videoFile: File): Promise<string> => {
         canvas.remove();
       }
     };
-
     video.onerror = () => reject(new Error("Failed to load video file"));
   });
 };
 
-// --- FILE CONVERSION (UPDATED WITH TURBO LOGIC) ---
-
+// --- MAIN FILE CONVERSION ---
 export const fileToBase64 = async (file: File): Promise<string> => {
-  // 1. VIDEO HANDLER (Use Turbo Storyboard)
+  // 1. VIDEO HANDLER
   if (file.type.startsWith('video/') || file.name.toLowerCase().match(/\.(mp4|mov|avi|webm)$/)) {
       try {
-          console.log("Processing video storyboard...");
           return await videoToStoryboardBase64(file);
       } catch (e) {
           console.error("Storyboard generation failed", e);
-          throw new Error("Failed to process video. File might be corrupt.");
+          throw new Error("Failed to process video.");
       }
   }
 
-  // 2. IMAGE HANDLER (With Auto-Resize)
+  // 2. IMAGE HANDLER
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -154,17 +170,17 @@ export const fileToBase64 = async (file: File): Promise<string> => {
       const result = reader.result as string;
       const rawBase64 = result.includes(',') ? result.split(',')[1] : result;
       
-      // Optimization: Resize heavy images (>500KB) before sending
-      if (file.size > 500 * 1024) {
+      // Threshold: Only resize if image is likely larger than 2048px (approx 1MB+ JPEG)
+      // This saves processing time on already small images
+      if (file.size > 1 * 1024 * 1024) { 
           try {
               const resized = await resizeImageBase64(rawBase64, file.type);
               resolve(resized);
           } catch (e) {
               console.warn("Resize failed, using original", e);
-              resolve(rawBase64);
+              resolve(rawBase64); // Safe Fallback
           }
       } else {
-          // Small images are sent as-is
           resolve(rawBase64);
       }
     };
@@ -176,7 +192,8 @@ export const getPreviewUrl = (file: File): string => {
   return URL.createObjectURL(file);
 };
 
-// CRC32 Table for PNG Chunk calculation
+// --- METADATA EMBEDDING UTILITIES ---
+
 const makeCRCTable = () => {
     let c;
     const crcTable = [];
@@ -198,8 +215,6 @@ const crc32 = (buf: Uint8Array): number => {
     }
     return (crc ^ (-1)) >>> 0;
 };
-
-// --- XMP GENERATION (Existing Functionality Preserved) ---
 
 export const generateXmpPacket = (metadata: StockMetadata, mimeType: string = "image/jpeg"): string => {
   const sanitize = (str: string) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -234,7 +249,7 @@ export const generateXmpPacket = (metadata: StockMetadata, mimeType: string = "i
 <?xpacket end="w"?>`;
 };
 
-// --- FORMAT SPECIFIC INJECTORS (Existing Functionality Preserved) ---
+// --- FORMAT SPECIFIC INJECTORS ---
 
 // 1. JPEG Injector (EXIF + XMP)
 const embedMetadataInJpeg = async (file: File, metadata: StockMetadata): Promise<Blob> => {
