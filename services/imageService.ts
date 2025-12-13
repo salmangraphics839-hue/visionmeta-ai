@@ -2,10 +2,11 @@ import piexif from "piexifjs";
 import { StockMetadata } from "../types";
 
 // --- CONFIGURATION FOR ROBUST MODE ---
-// 2048px is safer for AI Vision models to read small text/details
+// 2048px is the "Goldilocks" zone: Small enough for fast upload, 
+// but sharp enough for AI to read text and details perfectly.
 const MAX_IMAGE_DIM = 2048;      
-const MAX_VIDEO_FRAME_DIM = 800; // Increased for better video previews
-const JPEG_QUALITY = 0.90;       // High quality to prevent artifacts
+const MAX_VIDEO_FRAME_DIM = 800; // Increased video frame size for better clarity
+const JPEG_QUALITY = 0.90;       // High quality (90%) to prevent AI hallucinations
 
 // --- HELPER: RESIZE IMAGE ---
 const resizeImageBase64 = (base64Str: string, mimeType: string): Promise<string> => {
@@ -30,7 +31,7 @@ const resizeImageBase64 = (base64Str: string, mimeType: string): Promise<string>
         }
       }
 
-      // Integer Math is critical for Canvas
+      // Integer Math is critical for Canvas to prevent sub-pixel blurring
       width = Math.floor(width);
       height = Math.floor(height);
 
@@ -52,6 +53,7 @@ const resizeImageBase64 = (base64Str: string, mimeType: string): Promise<string>
       }
 
       // Force white background (Handling transparent PNGs)
+      // Without this, transparent areas become black, confusing the AI.
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, width, height);
       
@@ -104,7 +106,7 @@ const videoToStoryboardBase64 = async (videoFile: File): Promise<string> => {
       width = Math.floor(width);
       height = Math.floor(height);
 
-      // Capture 4 keyframes
+      // Capture 4 keyframes at 10%, 35%, 60%, 85%
       const timePoints = [duration * 0.1, duration * 0.35, duration * 0.6, duration * 0.85];
       
       const canvas = document.createElement('canvas');
@@ -170,8 +172,8 @@ export const fileToBase64 = async (file: File): Promise<string> => {
       const result = reader.result as string;
       const rawBase64 = result.includes(',') ? result.split(',')[1] : result;
       
-      // Threshold: Only resize if image is likely larger than 2048px (approx 1MB+ JPEG)
-      // This saves processing time on already small images
+      // Threshold: Only resize if image is likely larger than 1MB
+      // This saves processing time on already optimized images
       if (file.size > 1 * 1024 * 1024) { 
           try {
               const resized = await resizeImageBase64(rawBase64, file.type);
