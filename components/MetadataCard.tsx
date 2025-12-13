@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StockFile, FileStatus, StockMetadata } from '../types';
-import { CheckCircle, Loader2, AlertCircle, Edit2, Save, X, Copy, Check, ArrowUp, Bookmark, Copy as CopyIcon, Sparkles, Plus, Layers, Eye, Briefcase, Zap, BrainCircuit, FileText, Component, Wand2, RefreshCw } from 'lucide-react';
+import { CheckCircle, Loader2, AlertCircle, Edit2, Save, X, Copy, Check, ArrowUp, Bookmark, Copy as CopyIcon, Sparkles, Plus, Layers, Eye, Briefcase, Zap, BrainCircuit, FileText, Component, Wand2, RefreshCw, Play } from 'lucide-react';
 import { suggestMoreKeywords, KeywordSuggestionType, generateStrategicAnalysis, generateReversePrompt } from '../services/openaiService';
 import { fileToBase64 } from '../services/imageService';
 
@@ -134,6 +134,7 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
       if (item.strategyReport) return;
       setIsAnalyzing(true);
       try {
+        // This will now use the "Turbo" fileToBase64 (resized image/storyboard)
         const base64 = await fileToBase64(item.file);
         const report = await generateStrategicAnalysis("", base64, item.file.type, item.metadata?.title || "Image");
         onUpdateReport(item.id, report);
@@ -148,6 +149,7 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
       if (item.generatedPrompt) return;
       setIsGeneratingPrompt(true);
       try {
+        // This will now use the "Turbo" fileToBase64 (resized image/storyboard)
         const base64 = await fileToBase64(item.file);
         const prompt = await generateReversePrompt("", base64, item.file.type);
         onUpdatePrompt(item.id, prompt);
@@ -285,6 +287,25 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
         )}
 
         <div className="p-5 flex-1 flex flex-col gap-4">
+        
+        {/* IDLE STATE (FIX FOR BLANK SCREEN) */}
+        {item.status === FileStatus.IDLE && (
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-500 space-y-4 h-full">
+                <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center">
+                    <Sparkles className="w-8 h-8 text-slate-400" />
+                </div>
+                <div className="text-center">
+                    <p className="font-medium text-slate-300">Ready to Analyze</p>
+                    <p className="text-xs mt-1 text-slate-500">Generate metadata to see details.</p>
+                </div>
+                <button 
+                    onClick={onRegenerate}
+                    className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-sm shadow-lg shadow-blue-900/20 transition-all flex items-center gap-2"
+                >
+                    <Play className="w-4 h-4 fill-current" /> Generate Metadata
+                </button>
+            </div>
+        )}
             
         {item.status === FileStatus.PROCESSING && (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-400 space-y-3">
@@ -298,6 +319,9 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
                 <AlertCircle className="w-8 h-8 mb-2" />
                 <p className="font-medium">Analysis Failed</p>
                 <p className="text-xs mt-1 text-red-400/70 text-center">{item.error}</p>
+                <button onClick={onRegenerate} className="mt-3 text-xs bg-red-900/30 hover:bg-red-800 text-red-200 px-3 py-1.5 rounded transition-colors">
+                    Retry
+                </button>
              </div>
         )}
 
@@ -377,7 +401,6 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
                         <button 
                           onClick={() => {
                             setShowQuickSuggest(true);
-                            // Auto-fetch mixed if empty
                             if (suggestedKeywords.length === 0) handleSuggest('mixed');
                           }}
                           className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500 hover:text-white px-3 py-1.5 rounded-full transition-all flex items-center gap-1.5 shadow-sm hover:shadow-cyan-500/20"
