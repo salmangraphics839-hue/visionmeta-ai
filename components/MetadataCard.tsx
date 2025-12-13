@@ -134,6 +134,7 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
       if (item.strategyReport) return;
       setIsAnalyzing(true);
       try {
+        // This will now use the "Turbo" fileToBase64 (resized image/storyboard)
         const base64 = await fileToBase64(item.file);
         const report = await generateStrategicAnalysis("", base64, item.file.type, item.metadata?.title || "Image");
         onUpdateReport(item.id, report);
@@ -148,6 +149,7 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
       if (item.generatedPrompt) return;
       setIsGeneratingPrompt(true);
       try {
+        // This will now use the "Turbo" fileToBase64 (resized image/storyboard)
         const base64 = await fileToBase64(item.file);
         const prompt = await generateReversePrompt("", base64, item.file.type);
         onUpdatePrompt(item.id, prompt);
@@ -260,7 +262,7 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
 
       <div className="flex-1 flex flex-col min-w-0 bg-slate-800/50">
         
-        {/* Tabs - ONLY SHOW if SUCCESS */}
+        {/* Tabs */}
         {item.status === FileStatus.SUCCESS && (
             <div className="flex border-b border-slate-700 bg-slate-900/30">
                 <button 
@@ -286,10 +288,10 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
 
         <div className="p-5 flex-1 flex flex-col gap-4">
         
-        {/* IDLE STATE FIX (No longer blank! Force Height Added) */}
+        {/* IDLE STATE (FIX FOR BLANK SCREEN) */}
         {item.status === FileStatus.IDLE && (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-500 space-y-4 min-h-[300px] h-full">
-                <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center animate-in zoom-in-90 duration-300">
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-500 space-y-4 h-full">
+                <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center">
                     <Sparkles className="w-8 h-8 text-slate-400" />
                 </div>
                 <div className="text-center">
@@ -298,7 +300,7 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
                 </div>
                 <button 
                     onClick={onRegenerate}
-                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-sm shadow-lg shadow-blue-900/20 transition-all flex items-center gap-2 animate-pulse"
+                    className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-sm shadow-lg shadow-blue-900/20 transition-all flex items-center gap-2"
                 >
                     <Play className="w-4 h-4 fill-current" /> Generate Metadata
                 </button>
@@ -306,14 +308,14 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
         )}
             
         {item.status === FileStatus.PROCESSING && (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 space-y-3 min-h-[200px]">
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 space-y-3">
                 <Loader2 className="w-8 h-8 animate-spin text-cyan-500" />
                 <p className="animate-pulse text-sm">AI Vision Engine Analyzing...</p>
             </div>
         )}
 
         {item.status === FileStatus.ERROR && (
-             <div className="flex-1 flex flex-col items-center justify-center text-red-400 p-4 border border-red-500/20 rounded-lg bg-red-500/5 min-h-[200px]">
+             <div className="flex-1 flex flex-col items-center justify-center text-red-400 p-4 border border-red-500/20 rounded-lg bg-red-500/5">
                 <AlertCircle className="w-8 h-8 mb-2" />
                 <p className="font-medium">Analysis Failed</p>
                 <p className="text-xs mt-1 text-red-400/70 text-center">{item.error}</p>
