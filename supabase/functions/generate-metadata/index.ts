@@ -43,7 +43,7 @@ const callOpenAICompatible = async (apiKey: string, baseURL: string, model: stri
     return data.choices[0].message.content;
 };
 
-// --- HELPER 2: KEY LOADER ---
+// --- HELPER 2: KEY LOADER (WITH SMART SHUFFLING) ---
 const getProviderKeys = (baseName: string): string[] => {
     const keys: string[] = [];
     const k1 = Deno.env.get(baseName);
@@ -51,6 +51,11 @@ const getProviderKeys = (baseName: string): string[] => {
     for (let i = 2; i <= 5; i++) {
         const k = Deno.env.get(`${baseName}_${i}`);
         if (k) keys.push(k);
+    }
+    // Randomize keys for Load Balancing (Superfast distribution)
+    for (let i = keys.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [keys[i], keys[j]] = [keys[j], keys[i]];
     }
     return keys;
 };
@@ -113,7 +118,6 @@ serve(async (req) => {
             if (action === 'generate_metadata') {
                 promptText = SEO_SYSTEM_PROMPT + `\n\nTASK: Analyze this asset and output JSON.`;
                 
-                // Keyword Style Enforcement
                 if (payload.keywordStyle === 'Single') {
                     promptText += "\nKEYWORD STYLE RULE: STRICTLY SINGLE WORDS ONLY. No phrases allowed. EXCEPTION: You MUST use 'no people' as a phrase if applicable.";
                 } else if (payload.keywordStyle === 'Phrases') {
@@ -122,7 +126,6 @@ serve(async (req) => {
                     promptText += "\nKEYWORD STYLE RULE: Mix of single words and phrases.";
                 }
 
-                // Negative Keywords
                 if (payload.negativeKeywords) {
                     promptText += `\nNEGATIVE CONSTRAINTS (Do NOT use): ${payload.negativeKeywords}`;
                 }
@@ -134,30 +137,23 @@ serve(async (req) => {
                 3. **Technical/Conceptual Flaws**: (e.g., Noise, Cluttered composition, Dated style).
                 4. **Pricing/Tier**: (Microstock vs Premium/Macrostock).`;
             } 
-           else if (action === 'reverse_prompt') {
-    promptText = `You are an elite Midjourney v6 Prompt Engineer. Analyze this image and write a text-to-image prompt to recreate it precisely.
-
-    CRITICAL INSTRUCTION: Do NOT output a simple list of keywords. Use descriptive natural language phrases separated by commas.
-
-    Follow this specific structure:
-    1. **Subject & Action**: Describe the main subject, their pose, attire, or texture in vivid detail.
-    2. **Environment**: Describe the background, weather, time of day, and depth.
-    3. **Lighting & Atmosphere**: Specifics like "volumetric lighting," "bioluminescent glow," "harsh noon shadows," or "cinematic haze."
-    4. **Camera & Technical**: Lens type (e.g., 35mm, macro), Camera (e.g., Sony A7R IV), settings (e.g., f/1.8), and angle.
-    5. **Aesthetics**: Art style (e.g., "Cyberpunk", "National Geographic style", "Unreal Engine 5 render").
-
-    At the very end, append these parameters: "--v 6.0 --style raw"
-    CRITICAL: Output ONLY the raw prompt string. Do NOT write "Here is the prompt" or "Prompt:".`;
-}
+            else if (action === 'reverse_prompt') {
+                promptText = `You are an elite Midjourney v6 Prompt Engineer. Analyze this image and write a text-to-image prompt to recreate it precisely.
+                CRITICAL INSTRUCTION: Do NOT output a simple list of keywords. Use descriptive natural language phrases.
+                Follow this specific structure:
+                1. **Subject & Action**: Vivid details.
+                2. **Environment**: Background, weather, time.
+                3. **Lighting**: Volumetric, softbox, cinematic.
+                4. **Camera**: Lens type (35mm), settings (f/1.8), angle.
+                5. **Aesthetics**: Art style (Photorealistic, Octane Render).
+                Output ONLY the raw prompt string. Do NOT write "Here is the prompt".`;
+            }
 
             // --- VIDEO HANDLING (STORYBOARD TRICK) ---
             if (isVideo) {
-                // The frontend sent us a JPEG "Storyboard" (4 frames stitched).
-                // We must treat it as an IMAGE payload for the AI, but tell the AI it is a video storyboard.
-                
                 const videoPrompt = promptText + `\nCONTEXT: The input image is a 2x2 STORYBOARD collage extracted from a single video clip. Analyze these 4 frames together to understand the motion and action of the full video. Do NOT describe it as a collage.`;
 
-                // ATTEMPT 1: GEMINI POOL
+                // ATTEMPT 1: GEMINI POOL (1.5 Flash is Superfast for Video)
                 for (const key of KEYS.GEMINI) {
                     if (result) break;
                     try {
@@ -165,13 +161,13 @@ serve(async (req) => {
                         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
                         const r = await model.generateContent([
                             videoPrompt, 
-                            { inlineData: { data: payload.base64Data, mimeType: "image/jpeg" } } // Treat as JPEG
+                            { inlineData: { data: payload.base64Data, mimeType: "image/jpeg" } } // Treat Storyboard as JPEG
                         ]);
                         const text = r.response.text();
                         result = isJson ? JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}") : { report: text, prompt: text };
                     } catch (e) { lastError = e; }
                 }
-                // ATTEMPT 2: OPENAI POOL
+                // ATTEMPT 2: OPENAI POOL (UPDATED TO GPT-4o-MINI for Speed)
                 if (!result) {
                     for (const key of KEYS.OPENAI) {
                         if (result) break;
@@ -180,7 +176,8 @@ serve(async (req) => {
                                 { type: "text", text: videoPrompt },
                                 { type: "image_url", image_url: { url: `data:image/jpeg;base64,${payload.base64Data}` } }
                             ]}];
-                            const text = await callOpenAICompatible(key, 'https://api.openai.com/v1', 'gpt-4o', messages, isJson ? { type: "json_object" } : undefined);
+                            // SPEED UPGRADE: Using gpt-4o-mini
+                            const text = await callOpenAICompatible(key, 'https://api.openai.com/v1', 'gpt-4o-mini', messages, isJson ? { type: "json_object" } : undefined);
                             result = isJson ? JSON.parse(text) : { report: text, prompt: text };
                         } catch (e) { lastError = e; }
                     }
@@ -188,7 +185,7 @@ serve(async (req) => {
             } 
             // --- IMAGE HANDLING ---
             else {
-                // ATTEMPT 1: OPENAI POOL
+                // ATTEMPT 1: OPENAI POOL (UPDATED TO GPT-4o-MINI for Speed)
                 for (const key of KEYS.OPENAI) {
                     if (result) break;
                     try {
@@ -196,11 +193,12 @@ serve(async (req) => {
                             { type: "text", text: promptText },
                             { type: "image_url", image_url: { url: `data:${payload.mimeType};base64,${payload.base64Data}` } }
                         ]}];
-                        const text = await callOpenAICompatible(key, 'https://api.openai.com/v1', 'gpt-4o', messages, isJson ? { type: "json_object" } : undefined);
+                        // SPEED UPGRADE: Using gpt-4o-mini
+                        const text = await callOpenAICompatible(key, 'https://api.openai.com/v1', 'gpt-4o-mini', messages, isJson ? { type: "json_object" } : undefined);
                         result = isJson ? JSON.parse(text) : { report: text, prompt: text };
                     } catch (e) { lastError = e; }
                 }
-                // ATTEMPT 2: GEMINI POOL
+                // ATTEMPT 2: GEMINI POOL (Backup)
                 if (!result) {
                     for (const key of KEYS.GEMINI) {
                         if (result) break;
@@ -218,53 +216,36 @@ serve(async (req) => {
                 }
             }
         }
-// ... inside the serve handler, after the first 'if' block for generate_metadata ...
 
-    // === STRATEGY 1.5: ASSET TRACKER (SCRAPER) ===
-    else if (action === 'track_asset') {
-        const { url } = payload;
-        if (!url || !url.includes('stock.adobe.com')) {
-            throw new Error("Invalid URL. Please provide a valid Adobe Stock link.");
+        // === STRATEGY 1.5: ASSET TRACKER (SCRAPER) ===
+        else if (action === 'track_asset') {
+            const { url } = payload;
+            if (!url || !url.includes('stock.adobe.com')) {
+                throw new Error("Invalid URL. Please provide a valid Adobe Stock link.");
+            }
+
+            const resp = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5'
+                }
+            });
+
+            if (!resp.ok) throw new Error("Failed to reach Adobe Stock. Check the URL.");
+            const html = await resp.text();
+            
+            const downloadMatch = html.match(/"download_count":\s*(\d+)/) || html.match(/"num_downloads":\s*(\d+)/) || html.match(/"downloads":\s*(\d+)/);
+            const viewMatch = html.match(/"view_count":\s*(\d+)/) || html.match(/"num_views":\s*(\d+)/);
+            
+            result = {
+                downloads: downloadMatch ? parseInt(downloadMatch[1]) : null,
+                views: viewMatch ? parseInt(viewMatch[1]) : null,
+                foundData: !!(downloadMatch || viewMatch),
+                message: downloadMatch ? "Data found successfully." : "Could not extract specific numbers."
+            };
         }
 
-        // 1. Fetch the HTML with a real browser User-Agent to avoid being blocked
-        const resp = await fetch(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5'
-            }
-        });
-
-        if (!resp.ok) throw new Error("Failed to reach Adobe Stock. Check the URL.");
-        const html = await resp.text();
-
-        // 2. SCRAPING MAGIC: Look for the hidden JSON data
-        // Adobe usually hides this in a variable like window.__ReduxState__ or specific JSON keys
-        // We will look for standard "popularity" or "downloads" patterns.
-        
-        // Pattern A: Look for "content-media-download-count" or similar explicit keys
-        const downloadMatch = html.match(/"download_count":\s*(\d+)/) || 
-                              html.match(/"num_downloads":\s*(\d+)/) ||
-                              html.match(/"downloads":\s*(\d+)/);
-
-        // Pattern B: Look for "view_count"
-        const viewMatch = html.match(/"view_count":\s*(\d+)/) || 
-                          html.match(/"num_views":\s*(\d+)/);
-        
-        // Pattern C: Fallback to searching for the raw number near keywords if keys change
-        // (This is a simplified example. For production, you might need a stronger Regex based on current Adobe HTML)
-        
-        result = {
-            downloads: downloadMatch ? parseInt(downloadMatch[1]) : null,
-            views: viewMatch ? parseInt(viewMatch[1]) : null,
-            // If we can't find exact numbers, we return a flag so the UI knows
-            foundData: !!(downloadMatch || viewMatch),
-            message: downloadMatch ? "Data found successfully." : "Could not extract specific numbers. Adobe may have changed their code."
-        };
-    }
-
-// ... continue with === STRATEGY 2 ...
         // === STRATEGY 2: TEXT PIPELINE (SUGGESTIONS / CHAT / RESEARCH) ===
         else if (['chat', 'market_research', 'suggest_keywords'].includes(action)) {
              let prompt = "";
@@ -279,7 +260,6 @@ serve(async (req) => {
                  Description: "${payload.description}"
                  Existing Tags: "${payload.currentKeywords}"`;
                  
-                 // --- STRICTLY APPLY USER SETTINGS ---
                  if (payload.keywordStyle === 'Single') prompt += "\nCONSTRAINT: Generate SINGLE WORDS only. Exception: 'no people'.";
                  if (payload.keywordStyle === 'Phrases') prompt += "\nCONSTRAINT: Generate 2-WORD PHRASES only.";
                  if (payload.negativeKeywords) prompt += `\nNEGATIVE CONSTRAINT: Do NOT include: ${payload.negativeKeywords}`;
@@ -294,11 +274,12 @@ serve(async (req) => {
                  } catch (e) { lastError = e; }
              }
 
-             // 2. OPENAI POOL
+             // 2. OPENAI POOL (UPDATED TO GPT-4o-MINI for Speed)
              if (!result) {
                  for (const key of KEYS.OPENAI) {
                      if (result) break;
                      try {
+                         // SPEED UPGRADE: Using gpt-4o-mini
                          const text = await callOpenAICompatible(key, 'https://api.openai.com/v1', 'gpt-4o-mini', [{role: 'user', content: prompt}], isJson ? { type: 'json_object' } : undefined);
                          result = isJson ? JSON.parse(text) : { content: text, message: text };
                      } catch (e) { lastError = e; }
