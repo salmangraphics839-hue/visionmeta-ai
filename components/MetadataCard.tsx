@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StockFile, FileStatus, StockMetadata } from '../types';
-import { CheckCircle, Loader2, AlertCircle, Edit2, Save, X, Copy, Check, ArrowUp, Bookmark, Copy as CopyIcon, Sparkles, Plus, Layers, Eye, Briefcase, Zap, BrainCircuit, FileText, Wand2, RefreshCw, Play, FileBox } from 'lucide-react';
+import { CheckCircle, Loader2, AlertCircle, Edit2, Save, X, Copy, Check, ArrowUp, Bookmark, Copy as CopyIcon, Sparkles, Plus, Layers, Eye, Briefcase, Zap, BrainCircuit, FileText, Component, Wand2, RefreshCw, Play } from 'lucide-react';
 import { suggestMoreKeywords, KeywordSuggestionType, generateStrategicAnalysis, generateReversePrompt } from '../services/openaiService';
 import { fileToBase64 } from '../services/imageService';
 
@@ -14,7 +14,7 @@ interface MetadataCardProps {
   onSavePreset: (metadata: StockMetadata) => void;
   onApplyToAll: (metadata: StockMetadata) => void;
   onRegenerate: () => void;
-  apiKey: string; // Deprecated
+  apiKey: string; // Deprecated but kept for type compatibility
   keywordStyle: 'Mixed' | 'Single' | 'Phrases';
 }
 
@@ -232,7 +232,7 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
             {/* Vector Badge */}
             {item.vectorFile && (
                <div className="bg-amber-500/90 backdrop-blur text-white text-xs px-2 py-1 rounded-full flex items-center gap-1 shadow-sm">
-                  <FileBox className="w-3 h-3" /> 
+                  <Component className="w-3 h-3" /> 
                   {item.vectorFile.name.split('.').pop()?.toUpperCase()}
                </div>
             )}
@@ -286,10 +286,10 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
 
         <div className="p-5 flex-1 flex flex-col gap-4">
         
-        {/* IDLE STATE FIX (No longer blank!) */}
+        {/* IDLE STATE FIX (No longer blank! Force Height Added) */}
         {item.status === FileStatus.IDLE && (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-500 space-y-4 min-h-[300px]">
-                <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center">
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-500 space-y-4 min-h-[300px] h-full">
+                <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center animate-in zoom-in-90 duration-300">
                     <Sparkles className="w-8 h-8 text-slate-400" />
                 </div>
                 <div className="text-center">
@@ -298,7 +298,7 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
                 </div>
                 <button 
                     onClick={onRegenerate}
-                    className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-sm shadow-lg shadow-blue-900/20 transition-all flex items-center gap-2"
+                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-sm shadow-lg shadow-blue-900/20 transition-all flex items-center gap-2 animate-pulse"
                 >
                     <Play className="w-4 h-4 fill-current" /> Generate Metadata
                 </button>
@@ -323,7 +323,7 @@ const MetadataCard: React.FC<MetadataCardProps> = ({
              </div>
         )}
 
-        {/* METADATA VIEW (Only show if SUCCESS) */}
+        {/* METADATA VIEW */}
         {item.status === FileStatus.SUCCESS && activeTab === 'metadata' && item.metadata && !isEditing && (
             <>
                 <div className="space-y-1">
