@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
-import { Download, Play, Trash2, Image as ImageIcon, Loader2, Bookmark, ChevronDown, Check, FileText, Search, X, AlertTriangle, Globe, XCircle, Tag, Grid, List, Edit, ArrowLeft, Square, CheckSquare, Video, LogOut, User, Lock, Mail, Settings, BarChart3, Zap } from 'lucide-react';
+import { Download, Play, Trash2, Image as ImageIcon, Loader2, Bookmark, ChevronDown, Check, FileText, Search, X, AlertTriangle, Globe, XCircle, Tag, Grid, List, Edit, ArrowLeft, Square, CheckSquare, Video, LogOut, User, Lock, Mail, Settings, BarChart3 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 
@@ -11,8 +11,6 @@ import BatchDashboard from './components/BatchDashboard';
 import ChatBot from './components/ChatBot';
 import MarketResearch from './components/MarketResearch';
 import AssetTracker from './components/AssetTracker';
-import ImageGenerator from './components/ImageGenerator';
-
 import { StockFile, FileStatus, StockMetadata, MetadataPreset } from './types';
 import { generateImageMetadata } from './services/openaiService';
 import { embedMetadata, fileToBase64, getPreviewUrl } from './services/imageService';
@@ -30,7 +28,7 @@ const App: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
 
   // App Modes
-  const [viewMode, setViewMode] = useState<'single' | 'batch' | 'generate'>('single');
+  const [viewMode, setViewMode] = useState<'single' | 'batch'>('single');
 
   // Data State
   const [files, setFiles] = useState<StockFile[]>([]);
@@ -40,7 +38,11 @@ const App: React.FC = () => {
   // Processing State
   const [processQueue, setProcessQueue] = useState<string[]>([]);
   const [activeCount, setActiveCount] = useState(0); 
-  const MAX_CONCURRENCY = 10;
+  
+  // --- STABILITY FIX: REDUCED CONCURRENCY ---
+  // Was 10 (Too aggressive). Now 2 (Stable).
+  // This ensures the server only handles 2 images at a time, preventing timeouts.
+  const MAX_CONCURRENCY = 2;
   
   // Edit Modal State
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
@@ -117,7 +119,6 @@ const App: React.FC = () => {
       if (authMode === 'signup') {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        // Auto-login logic usually handled by Supabase, or show "Check email"
         if (!error) alert("Account created! You can now log in.");
         setAuthMode('login');
       } else {
@@ -160,34 +161,6 @@ const App: React.FC = () => {
     return Date.now().toString(36) + Math.random().toString(36).substring(2);
   };
 
-  // --- NEW: GENERATOR BRIDGE ---
-  const handleImageGenerated = (file: File, prompt: string) => {
-    // 1. Refresh Credits (Because generation happened on server and cost money)
-    if (user) fetchCredits(user.id);
-
-    // 2. Create a StockFile from the generated image
-    const newStockFile: StockFile = {
-      id: generateId(),
-      file: file,
-      previewUrl: getPreviewUrl(file),
-      status: FileStatus.IDLE,
-      generatedPrompt: prompt, 
-      source: 'generated' 
-    };
-
-    // 3. Switch View & Set State
-    setFiles([newStockFile]); 
-    setSelectedIds(new Set());
-    setViewMode('single'); // Go to Lab (Metadata View)
-    
-    // 4. Auto-Trigger Analysis (Optional - removes one click)
-    // We set a small timeout to let the view render, then process
-    setTimeout(() => {
-        setProcessQueue([newStockFile.id]);
-    }, 500);
-  };
-  // -----------------------------
-
   const handleFilesSelected = (newFiles: File[]) => {
     const primaryFiles: File[] = [];
     const vectorFiles: Map<string, File> = new Map();
@@ -215,8 +188,7 @@ const App: React.FC = () => {
         file: file,
         previewUrl: getPreviewUrl(file),
         status: FileStatus.IDLE,
-        vectorFile: pairedVector,
-        source: 'upload'
+        vectorFile: pairedVector
       };
     });
 
@@ -432,7 +404,7 @@ const App: React.FC = () => {
     setSearchQuery("");
   };
 
-  const handleViewModeChange = (mode: 'single' | 'batch' | 'generate') => {
+  const handleViewModeChange = (mode: 'single' | 'batch') => {
       setViewMode(mode);
       if (mode === 'single' && files.length > 1) {
           setFiles([files[0]]);
@@ -661,12 +633,6 @@ const App: React.FC = () => {
               >
                   <Grid className="w-3.5 h-3.5" /> Batch
               </button>
-              <button 
-                  onClick={() => handleViewModeChange('generate')}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${viewMode === 'generate' ? 'bg-pink-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
-              >
-                  <Zap className="w-3.5 h-3.5" /> Studio
-              </button>
           </div>
           
           <div className="flex items-center gap-4">
@@ -709,7 +675,7 @@ const App: React.FC = () => {
           </div>
         </div>
         
-        {files.length > 0 && viewMode !== 'generate' && (
+        {files.length > 0 && (
           <div className="absolute bottom-0 left-0 w-full h-1 bg-slate-800">
             <div 
               className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-300 ease-out"
@@ -721,14 +687,7 @@ const App: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-4 py-8">
         
-        {/* VIEW 1: GENERATOR STUDIO */}
-        {viewMode === 'generate' && (
-           <div className="mb-8">
-               <ImageGenerator onImageGenerated={handleImageGenerated} userCredits={credits} />
-           </div>
-        )}
-
-        {/* VIEW 2: BATCH MODE TOOLBAR */}
+        {/* BATCH MODE TOOLBAR */}
         {viewMode === 'batch' && (
             <>
                 <div className="mb-6 animate-in slide-in-from-top-2">
@@ -754,7 +713,7 @@ const App: React.FC = () => {
             </>
         )}
 
-        {/* VIEW 3: SINGLE MODE (LAB) */}
+        {/* SINGLE UPLOAD VIEW */}
         {viewMode === 'single' && (
             <>
                 <div className="mb-8">
@@ -883,102 +842,98 @@ const App: React.FC = () => {
             </>
         )}
 
-        {/* FILE DISPLAY: LIST OR GRID (Visible in Single/Batch modes) */}
-        {viewMode !== 'generate' && (
-            <>
-                {viewMode === 'single' ? (
-                    <div className="flex flex-col gap-6">
-                        {filteredFiles.map(file => (
-                            <div key={file.id} className="relative group animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                <button onClick={() => removeFile(file.id)} className="absolute -right-3 -top-3 bg-slate-800 text-slate-400 hover:text-red-400 hover:bg-slate-700 border border-slate-700 rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-all z-20 shadow-xl"><Trash2 className="w-4 h-4" /></button>
-                                <MetadataCard 
-                                    item={file} 
-                                    isSelected={selectedIds.has(file.id)}
-                                    onToggleSelect={handleToggleSelect}
-                                    onUpdateMetadata={handleUpdateMetadata}
-                                    onUpdateReport={handleUpdateReport}
-                                    onUpdatePrompt={handleUpdatePrompt}
-                                    onSavePreset={savePreset}
-                                    onApplyToAll={handleApplyToAll}
-                                    onRegenerate={() => processImage(file.id)}
-                                    apiKey=""
-                                    keywordStyle={keywordStyle}
-                                />
-                            </div>
-                        ))}
+        {/* FILE DISPLAY: LIST OR GRID */}
+        {viewMode === 'single' ? (
+            <div className="flex flex-col gap-6">
+                {filteredFiles.map(file => (
+                    <div key={file.id} className="relative group animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <button onClick={() => removeFile(file.id)} className="absolute -right-3 -top-3 bg-slate-800 text-slate-400 hover:text-red-400 hover:bg-slate-700 border border-slate-700 rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-all z-20 shadow-xl"><Trash2 className="w-4 h-4" /></button>
+                        <MetadataCard 
+                            item={file} 
+                            isSelected={selectedIds.has(file.id)}
+                            onToggleSelect={handleToggleSelect}
+                            onUpdateMetadata={handleUpdateMetadata}
+                            onUpdateReport={handleUpdateReport}
+                            onUpdatePrompt={handleUpdatePrompt}
+                            onSavePreset={savePreset}
+                            onApplyToAll={handleApplyToAll}
+                            onRegenerate={() => processImage(file.id)}
+                            apiKey=""
+                            keywordStyle={keywordStyle}
+                        />
                     </div>
-                ) : (
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                        {filteredFiles.map(file => {
-                            const isSelected = selectedIds.has(file.id);
-                            const isVideo = file.file.type.startsWith('video/');
-                            return (
-                            <div 
-                                key={file.id} 
-                                onClick={() => handleToggleSelect(file.id)}
-                                className={`bg-slate-800 rounded-lg overflow-hidden border relative group transition-all hover:shadow-xl cursor-pointer ${isSelected ? 'border-cyan-500 ring-2 ring-cyan-500/50' : 'border-slate-700 hover:border-slate-500'}`}
-                            >
-                                <div className="absolute top-2 right-2 z-10">
-                                    {file.status === FileStatus.PROCESSING && <div className="bg-blue-500 p-1 rounded-full animate-pulse"><Loader2 className="w-3 h-3 text-white animate-spin" /></div>}
-                                    {file.status === FileStatus.SUCCESS && <div className="bg-emerald-500 p-1 rounded-full"><Check className="w-3 h-3 text-white" /></div>}
-                                    {file.status === FileStatus.ERROR && <div className="bg-red-500 p-1 rounded-full"><AlertTriangle className="w-3 h-3 text-white" /></div>}
-                                </div>
-                                
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); setEditingFileId(file.id); }}
-                                    className="absolute bottom-2 right-2 z-20 bg-slate-900/80 hover:bg-cyan-600 text-white p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all backdrop-blur shadow-lg border border-slate-700 hover:border-cyan-500"
-                                    title="Deep Edit"
-                                >
-                                    <Edit className="w-3.5 h-3.5" />
-                                </button>
-                                
-                                <div className={`absolute top-2 left-2 z-10 p-1 rounded-md backdrop-blur transition-all ${isSelected ? 'bg-cyan-500 text-white' : 'bg-black/30 text-white/50 group-hover:bg-black/50 group-hover:text-white'}`}>
-                                   {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                                </div>
-
-                                <div className="aspect-square bg-slate-900 relative flex items-center justify-center">
-                                     {isVideo ? (
-                                        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900">
-                                            <Video className="w-10 h-10 text-slate-600" />
-                                            <span className="text-[10px] text-slate-500 mt-2 uppercase font-bold">Video Clip</span>
-                                        </div>
-                                     ) : (
-                                        <img src={file.previewUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" alt="" />
-                                     )}
-                                     
-                                     {file.status === FileStatus.PROCESSING && (
-                                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10">
-                                            <span className="text-xs font-bold text-white tracking-widest uppercase">Processing</span>
-                                        </div>
-                                     )}
-                                </div>
-                                <div className="p-2.5">
-                                    <p className="text-xs font-medium text-slate-300 truncate" title={file.file.name}>{file.file.name}</p>
-                                    <div className="flex items-center justify-between mt-1">
-                                        <span className={`text-[10px] font-bold uppercase ${file.status === FileStatus.SUCCESS ? 'text-emerald-400' : 'text-slate-500'}`}>
-                                            {file.status === FileStatus.SUCCESS ? 'Complete' : file.status}
-                                        </span>
-                                        <div className="flex gap-1">
-                                            {isVideo && <span className="text-[10px] bg-indigo-900/50 text-indigo-300 px-1 rounded">VID</span>}
-                                            {file.vectorFile && <span className="text-[10px] bg-slate-700 px-1 rounded text-slate-300">VEC</span>}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )})}
-                    </div>
-                )}
-                
-                {files.length === 0 && (
-                     <div className="text-center text-slate-500 py-20 flex flex-col items-center">
-                        <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-cyan-900/20">
-                          <ImageIcon className="w-8 h-8 text-slate-600" />
+                ))}
+            </div>
+        ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {filteredFiles.map(file => {
+                    const isSelected = selectedIds.has(file.id);
+                    const isVideo = file.file.type.startsWith('video/');
+                    return (
+                    <div 
+                        key={file.id} 
+                        onClick={() => handleToggleSelect(file.id)}
+                        className={`bg-slate-800 rounded-lg overflow-hidden border relative group transition-all hover:shadow-xl cursor-pointer ${isSelected ? 'border-cyan-500 ring-2 ring-cyan-500/50' : 'border-slate-700 hover:border-slate-500'}`}
+                    >
+                        <div className="absolute top-2 right-2 z-10">
+                            {file.status === FileStatus.PROCESSING && <div className="bg-blue-500 p-1 rounded-full animate-pulse"><Loader2 className="w-3 h-3 text-white animate-spin" /></div>}
+                            {file.status === FileStatus.SUCCESS && <div className="bg-emerald-500 p-1 rounded-full"><Check className="w-3 h-3 text-white" /></div>}
+                            {file.status === FileStatus.ERROR && <div className="bg-red-500 p-1 rounded-full"><AlertTriangle className="w-3 h-3 text-white" /></div>}
                         </div>
-                        <p className="text-lg font-medium text-slate-400">No media uploaded yet</p>
-                        <p className="text-sm">Drag and drop images or videos above to get started</p>
-                     </div>
-                )}
-            </>
+                        
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); setEditingFileId(file.id); }}
+                            className="absolute bottom-2 right-2 z-20 bg-slate-900/80 hover:bg-cyan-600 text-white p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all backdrop-blur shadow-lg border border-slate-700 hover:border-cyan-500"
+                            title="Deep Edit"
+                        >
+                            <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        
+                        <div className={`absolute top-2 left-2 z-10 p-1 rounded-md backdrop-blur transition-all ${isSelected ? 'bg-cyan-500 text-white' : 'bg-black/30 text-white/50 group-hover:bg-black/50 group-hover:text-white'}`}>
+                           {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                        </div>
+
+                        <div className="aspect-square bg-slate-900 relative flex items-center justify-center">
+                             {isVideo ? (
+                                <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900">
+                                    <Video className="w-10 h-10 text-slate-600" />
+                                    <span className="text-[10px] text-slate-500 mt-2 uppercase font-bold">Video Clip</span>
+                                </div>
+                             ) : (
+                                <img src={file.previewUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" alt="" />
+                             )}
+                             
+                             {file.status === FileStatus.PROCESSING && (
+                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10">
+                                    <span className="text-xs font-bold text-white tracking-widest uppercase">Processing</span>
+                                </div>
+                             )}
+                        </div>
+                        <div className="p-2.5">
+                            <p className="text-xs font-medium text-slate-300 truncate" title={file.file.name}>{file.file.name}</p>
+                            <div className="flex items-center justify-between mt-1">
+                                <span className={`text-[10px] font-bold uppercase ${file.status === FileStatus.SUCCESS ? 'text-emerald-400' : 'text-slate-500'}`}>
+                                    {file.status === FileStatus.SUCCESS ? 'Complete' : file.status}
+                                </span>
+                                <div className="flex gap-1">
+                                    {isVideo && <span className="text-[10px] bg-indigo-900/50 text-indigo-300 px-1 rounded">VID</span>}
+                                    {file.vectorFile && <span className="text-[10px] bg-slate-700 px-1 rounded text-slate-300">VEC</span>}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )})}
+            </div>
+        )}
+        
+        {files.length === 0 && (
+             <div className="text-center text-slate-500 py-20 flex flex-col items-center">
+                <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-cyan-900/20">
+                  <ImageIcon className="w-8 h-8 text-slate-600" />
+                </div>
+                <p className="text-lg font-medium text-slate-400">No media uploaded yet</p>
+                <p className="text-sm">Drag and drop images or videos above to get started</p>
+             </div>
         )}
       </main>
 

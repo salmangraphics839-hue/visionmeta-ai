@@ -1,36 +1,37 @@
 import { supabase } from '../supabaseClient';
 import { StockMetadata, MarketTrend, ChatMessage } from "../types";
 
-// Helper to handle the Supabase Invoke for the MAIN APP (Metadata, etc.)
-// We send an 'action' parameter so one Edge Function can handle all different tasks
-const invokeVisionMetaEdgeFunction = async (action: string, payload: any) => {
-  const { data, error } = await supabase.functions.invoke('generate-metadata', {
-    body: { action, ...payload }
-  });
+// --- RETRY LOGIC FOR STABILITY ---
+// Automatically retries failed requests up to 3 times to prevent "Skipped" errors.
+const invokeWithRetry = async (action: string, payload: any, retries = 3): Promise<any> => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-metadata', {
+        body: { action, ...payload }
+      });
 
-  if (error) {
-    // This handles network errors or 500s from the Edge Function
-    console.error("Edge Function Invocation Error:", error);
-    throw new Error("Connection to server failed. Please try again.");
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+
+      return data; // Success!
+    } catch (err) {
+      console.warn(`Attempt ${i + 1} failed for ${action}:`, err);
+      if (i === retries - 1) throw err; // Throw if last attempt failed
+      // Wait 1 second before retrying
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
   }
-
-  // This handles application errors returned by your logic (e.g., "Insufficient credits")
-  if (data?.error) {
-    throw new Error(data.error);
-  }
-
-  return data;
 };
 
 // 1. Image/Video Metadata Generation
 export const generateImageMetadata = async (
-  _ignoredApiKey: string, // kept for signature compatibility
+  _ignoredApiKey: string, 
   base64Data: string, 
   mimeType: string,
   negativeKeywords?: string,
   keywordStyle: 'Mixed' | 'Single' | 'Phrases' = 'Single'
 ): Promise<StockMetadata> => {
-  return await invokeVisionMetaEdgeFunction('generate_metadata', {
+  return await invokeWithRetry('generate_metadata', {
     base64Data,
     mimeType,
     negativeKeywords,
@@ -47,7 +48,7 @@ export const suggestMoreKeywords = async (
   type: any = 'mixed',
   keywordStyle: any = 'Single'
 ): Promise<string[]> => {
-  const response = await invokeVisionMetaEdgeFunction('suggest_keywords', {
+  const response = await invokeWithRetry('suggest_keywords', {
     title,
     description,
     currentKeywords,
@@ -64,7 +65,7 @@ export const generateStrategicAnalysis = async (
   mimeType: string, 
   title: string
 ): Promise<string> => {
-  const response = await invokeVisionMetaEdgeFunction('strategic_analysis', {
+  const response = await invokeWithRetry('strategic_analysis', {
     base64Data,
     mimeType,
     title
@@ -78,7 +79,7 @@ export const generateReversePrompt = async (
   base64Data: string, 
   mimeType: string
 ): Promise<string> => {
-  const response = await invokeVisionMetaEdgeFunction('reverse_prompt', {
+  const response = await invokeWithRetry('reverse_prompt', {
     base64Data,
     mimeType
   });
@@ -90,7 +91,7 @@ export const getMarketResearch = async (
   _ignoredApiKey: string, 
   query: string
 ): Promise<MarketTrend> => {
-  return await invokeVisionMetaEdgeFunction('market_research', { query });
+  return await invokeWithRetry('market_research', { query });
 };
 
 // 6. Chatbot
@@ -98,16 +99,15 @@ export const sendChatMessage = async (
   _ignoredApiKey: string, 
   history: ChatMessage[]
 ): Promise<string> => {
-  const response = await invokeVisionMetaEdgeFunction('chat', { history });
+  const response = await invokeWithRetry('chat', { history });
   return response.message || "";
 };
 
-// 7. Asset Tracker (NEW - Points to the SEPARATE test function)
+// 7. Asset Tracker (Separate Function - No Retry needed as it's fast)
 export const trackAsset = async (
   _ignoredApiKey: string,
   url: string
 ): Promise<{ downloads: number | null; views: number | null; message: string }> => {
-  // NOTE: Calling 'asset-tracker' function, NOT 'generate-metadata'
   const { data, error } = await supabase.functions.invoke('asset-tracker', {
     body: { url }
   });
