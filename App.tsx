@@ -39,9 +39,8 @@ const App: React.FC = () => {
   const [processQueue, setProcessQueue] = useState<string[]>([]);
   const [activeCount, setActiveCount] = useState(0); 
   
-  // --- PERFORMANCE TUNING ---
-  // We increased this from 2 to 5.
-  // With the new 4MB Image Limit, the server can safely handle 5 parallel requests.
+  // --- PERFORMANCE SETTING ---
+  // 5 is the safe limit for Supabase Free Tier when using optimized images.
   const MAX_CONCURRENCY = 5;
   
   // Edit Modal State
@@ -274,6 +273,12 @@ const App: React.FC = () => {
       // 1. Call Secure Edge Function
       const metadata = await generateImageMetadata("", base64, targetFile.file.type, activeNegativePrompt, keywordStyle);
 
+      // --- CRITICAL VALIDATION FIX ---
+      // If AI returns an empty title or failed structure, treat it as an ERROR, not success.
+      if (!metadata || !metadata.title || metadata.title.trim() === "" || metadata.title === "No Title Generated") {
+          throw new Error("AI generated empty metadata. Please retry.");
+      }
+
       // 2. Refresh credits from DB since server deducted them
       if (user) fetchCredits(user.id);
 
@@ -294,9 +299,10 @@ const App: React.FC = () => {
       } : f));
 
     } catch (error: any) {
-      
+      console.error("Processing Error:", error);
+
       // ALERT USER IF CREDITS ARE OUT
-      if (error.message.toLowerCase().includes('insufficient credits') || error.message.toLowerCase().includes('payment required')) {
+      if (error.message && (error.message.toLowerCase().includes('insufficient credits') || error.message.toLowerCase().includes('payment required'))) {
           alert("🚫 Insufficient Credits!\n\nPlease contact the administrator to top up your account.");
           // Stop further processing if in batch mode
           setProcessQueue([]); 

@@ -21,6 +21,15 @@ STRICT STEPS:
    - Mix: Include Literal (objects), Conceptual (ideas), and Stylistic (art style) tags.
    - Compliance: No repeated stems (run/running). No "Generative AI" tags.
    - CRITICAL: If the image contains NO HUMANS, "no people" MUST be in the Top 10 keywords.
+
+OUTPUT FORMAT:
+Return ONLY a valid JSON object. Do not wrap in markdown code blocks. Do not add conversational text.
+Structure:
+{
+  "title": "String",
+  "description": "String",
+  "keywords": ["String", "String", ...]
+}
 `;
 
 // --- HELPER 1: GENERIC API CALLER ---
@@ -58,6 +67,26 @@ const getProviderKeys = (baseName: string): string[] => {
         [keys[i], keys[j]] = [keys[j], keys[i]];
     }
     return keys;
+};
+
+// --- HELPER 3: ROBUST JSON PARSER ---
+const cleanAndParseJSON = (text: string) => {
+    try {
+        // 1. Try Direct Parse
+        return JSON.parse(text);
+    } catch (e) {
+        // 2. Try cleaning Markdown
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            try {
+                return JSON.parse(jsonMatch[0]);
+            } catch (e2) {
+                // 3. Fallback: Last ditch clean (remove unescaped newlines inside strings if needed, usually regex catches it)
+                throw new Error("Failed to parse AI response as JSON");
+            }
+        }
+        throw new Error("No JSON found in AI response");
+    }
 };
 
 serve(async (req) => {
@@ -164,7 +193,13 @@ serve(async (req) => {
                             { inlineData: { data: payload.base64Data, mimeType: "image/jpeg" } } // Treat Storyboard as JPEG
                         ]);
                         const text = r.response.text();
-                        result = isJson ? JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}") : { report: text, prompt: text };
+                        if (isJson) {
+                            result = cleanAndParseJSON(text);
+                            // VALIDATION
+                            if (!result.title || !result.keywords) throw new Error("Invalid metadata structure");
+                        } else {
+                            result = { report: text, prompt: text };
+                        }
                     } catch (e) { lastError = e; }
                 }
                 // ATTEMPT 2: OPENAI POOL (UPDATED TO GPT-4o-MINI for Speed)
@@ -176,16 +211,20 @@ serve(async (req) => {
                                 { type: "text", text: videoPrompt },
                                 { type: "image_url", image_url: { url: `data:image/jpeg;base64,${payload.base64Data}` } }
                             ]}];
-                            // SPEED UPGRADE: Using gpt-4o-mini
                             const text = await callOpenAICompatible(key, 'https://api.openai.com/v1', 'gpt-4o-mini', messages, isJson ? { type: "json_object" } : undefined);
-                            result = isJson ? JSON.parse(text) : { report: text, prompt: text };
+                            if (isJson) {
+                                result = JSON.parse(text);
+                                if (!result.title) throw new Error("Invalid metadata structure");
+                            } else {
+                                result = { report: text, prompt: text };
+                            }
                         } catch (e) { lastError = e; }
                     }
                 }
             } 
             // --- IMAGE HANDLING ---
             else {
-                // ATTEMPT 1: OPENAI POOL (UPDATED TO GPT-4o-MINI for Speed)
+                // ATTEMPT 1: OPENAI POOL (GPT-4o-MINI for Speed)
                 for (const key of KEYS.OPENAI) {
                     if (result) break;
                     try {
@@ -193,9 +232,13 @@ serve(async (req) => {
                             { type: "text", text: promptText },
                             { type: "image_url", image_url: { url: `data:${payload.mimeType};base64,${payload.base64Data}` } }
                         ]}];
-                        // SPEED UPGRADE: Using gpt-4o-mini
                         const text = await callOpenAICompatible(key, 'https://api.openai.com/v1', 'gpt-4o-mini', messages, isJson ? { type: "json_object" } : undefined);
-                        result = isJson ? JSON.parse(text) : { report: text, prompt: text };
+                        if (isJson) {
+                            result = JSON.parse(text);
+                            if (!result.title) throw new Error("Invalid metadata structure");
+                        } else {
+                            result = { report: text, prompt: text };
+                        }
                     } catch (e) { lastError = e; }
                 }
                 // ATTEMPT 2: GEMINI POOL (Backup)
@@ -210,7 +253,12 @@ serve(async (req) => {
                                 { inlineData: { data: payload.base64Data, mimeType: payload.mimeType } }
                             ]);
                             const text = r.response.text();
-                            result = isJson ? JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}") : { report: text, prompt: text };
+                            if (isJson) {
+                                result = cleanAndParseJSON(text);
+                                if (!result.title) throw new Error("Invalid metadata structure");
+                            } else {
+                                result = { report: text, prompt: text };
+                            }
                         } catch (e) { lastError = e; }
                     }
                 }
@@ -274,12 +322,11 @@ serve(async (req) => {
                  } catch (e) { lastError = e; }
              }
 
-             // 2. OPENAI POOL (UPDATED TO GPT-4o-MINI for Speed)
+             // 2. OPENAI POOL
              if (!result) {
                  for (const key of KEYS.OPENAI) {
                      if (result) break;
                      try {
-                         // SPEED UPGRADE: Using gpt-4o-mini
                          const text = await callOpenAICompatible(key, 'https://api.openai.com/v1', 'gpt-4o-mini', [{role: 'user', content: prompt}], isJson ? { type: 'json_object' } : undefined);
                          result = isJson ? JSON.parse(text) : { content: text, message: text };
                      } catch (e) { lastError = e; }
@@ -295,8 +342,7 @@ serve(async (req) => {
                         const r = await genAI.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent(prompt);
                         const text = r.response.text();
                         if (isJson) {
-                            const jsonMatch = text.match(/\{[\s\S]*\}/);
-                            result = jsonMatch ? JSON.parse(jsonMatch[0]) : { suggestions: [] };
+                            result = cleanAndParseJSON(text);
                         } else {
                             result = { content: text, message: text };
                         }
@@ -309,6 +355,7 @@ serve(async (req) => {
 
     } catch (finalError: any) {
         // === SAFETY REFUND ===
+        // If the generation logic fails, we MUST refund the user immediately.
         if (cost > 0) {
             console.error("Critical Failure. Refunding...");
             const { data: currentProfile } = await supabaseAdmin.from('profiles').select('credits').eq('id', user.id).single();
