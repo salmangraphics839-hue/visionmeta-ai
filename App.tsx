@@ -39,10 +39,10 @@ const App: React.FC = () => {
   const [processQueue, setProcessQueue] = useState<string[]>([]);
   const [activeCount, setActiveCount] = useState(0); 
   
-  // --- STABILITY FIX: REDUCED CONCURRENCY ---
-  // Was 10 (Too aggressive). Now 2 (Stable).
-  // This ensures the server only handles 2 images at a time, preventing timeouts.
-  const MAX_CONCURRENCY = 2;
+  // --- PERFORMANCE TUNING ---
+  // We increased this from 2 to 5.
+  // With the new 4MB Image Limit, the server can safely handle 5 parallel requests.
+  const MAX_CONCURRENCY = 5;
   
   // Edit Modal State
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
