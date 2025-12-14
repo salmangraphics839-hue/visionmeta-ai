@@ -1,73 +1,9 @@
 import piexif from "piexifjs";
 import { StockMetadata } from "../types";
 
-// --- SMART CONFIGURATION ---
-// Strategy: "Only downsize if > 9MB"
-// This prevents server timeouts while preserving maximum quality for AI accuracy.
-const SAFETY_THRESHOLD_BYTES = 9 * 1024 * 1024; // 9 MB Limit
-const RESIZE_MAX_DIMENSION = 3840; // 4K Resolution Cap (Only applies if resizing is triggered)
-const RESIZE_QUALITY = 0.92; // High quality preservation for resized images
-
-// --- HELPER: EMERGENCY RESIZER (Smart Compress) ---
-// Only runs if the file is > 9MB to save the server from crashing.
-const smartCompressImage = (base64Str: string, mimeType: string): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.src = `data:${mimeType};base64,${base64Str}`;
-    
-    img.onload = () => {
-      let width = img.width;
-      let height = img.height;
-
-      // 1. Downscale dimensions only if they are absolutely massive (larger than 4K)
-      if (width > RESIZE_MAX_DIMENSION || height > RESIZE_MAX_DIMENSION) {
-          const scale = Math.min(RESIZE_MAX_DIMENSION / width, RESIZE_MAX_DIMENSION / height);
-          width *= scale;
-          height *= scale;
-      }
-
-      // Integer Math is critical for Canvas to prevent blurring
-      width = Math.floor(width);
-      height = Math.floor(height);
-
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      
-      if (!ctx) { 
-          reject(new Error("Canvas context failed")); 
-          return; 
-      }
-
-      // 2. White background ensures transparency (PNGs) doesn't turn black
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, width, height);
-      
-      // 3. Draw image
-      ctx.drawImage(img, 0, 0, width, height);
-      
-      // 4. Export at High Quality
-      const resizedDataUrl = canvas.toDataURL('image/jpeg', RESIZE_QUALITY);
-      
-      // Basic validation
-      if (resizedDataUrl.length < 100) {
-          reject(new Error("Resizing failed: Output too small"));
-          return;
-      }
-
-      console.log(`Smart Compression Applied: ${img.width}x${img.height} -> ${width}x${height}`);
-      resolve(resizedDataUrl.split(',')[1]);
-    };
-
-    img.onerror = (e) => reject(new Error("Failed to load image for resizing"));
-  });
-};
-
 // --- VIDEO PROCESSING UTILS (The Storyboard Trick) ---
-// Extracts 4 frames from a video and stitches them into a 2x2 grid image
-const MAX_VIDEO_FRAME_DIM = 800; // Limit video frame size
 
+// Extracts 4 frames from a video and stitches them into a 2x2 grid image
 const videoToStoryboardBase64 = async (videoFile: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
@@ -79,25 +15,9 @@ const videoToStoryboardBase64 = async (videoFile: File): Promise<string> => {
     // Wait for metadata to load so we know duration and size
     video.onloadedmetadata = async () => {
       const duration = video.duration;
-      let width = video.videoWidth;
-      let height = video.videoHeight;
+      const width = video.videoWidth;
+      const height = video.videoHeight;
       
-      // Resize huge video frames for the storyboard
-      if (width > height) {
-         if (width > MAX_VIDEO_FRAME_DIM) { 
-             height *= MAX_VIDEO_FRAME_DIM / width; 
-             width = MAX_VIDEO_FRAME_DIM; 
-         }
-      } else {
-         if (height > MAX_VIDEO_FRAME_DIM) { 
-             width *= MAX_VIDEO_FRAME_DIM / height; 
-             height = MAX_VIDEO_FRAME_DIM; 
-         }
-      }
-      
-      width = Math.floor(width);
-      height = Math.floor(height);
-
       // We will capture 4 frames at: 10%, 35%, 60%, 85% of the video
       const timePoints = [duration * 0.1, duration * 0.35, duration * 0.6, duration * 0.85];
       
@@ -137,8 +57,8 @@ const videoToStoryboardBase64 = async (videoFile: File): Promise<string> => {
           await captureFrame(timePoints[i], i);
         }
         
-        // Export as JPEG (Compressed to 0.85 quality)
-        const base64Url = canvas.toDataURL('image/jpeg', 0.85); 
+        // Export as JPEG (Compressed to 0.8 quality to ensure it fits <6MB limit)
+        const base64Url = canvas.toDataURL('image/jpeg', 0.8); 
         
         // Remove the data URL header ("data:image/jpeg;base64,")
         const base64Clean = base64Url.includes(',') ? base64Url.split(',')[1] : base64Url;
@@ -159,7 +79,7 @@ const videoToStoryboardBase64 = async (videoFile: File): Promise<string> => {
   });
 };
 
-// --- FILE CONVERSION (Main Entry Point) ---
+// --- FILE CONVERSION ---
 
 export const fileToBase64 = async (file: File): Promise<string> => {
   // SPECIAL HANDLER: If Video, convert to Storyboard Image
@@ -173,31 +93,15 @@ export const fileToBase64 = async (file: File): Promise<string> => {
       }
   }
 
-  // STANDARD HANDLER: Images
+  // STANDARD HANDLER: Images (Original Logic)
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onload = async () => {
+    reader.onload = () => {
       const result = reader.result as string;
-      const rawBase64 = result.includes(',') ? result.split(',')[1] : result;
-
-      // --- SMART LOGIC ---
-      // If file > 9MB, resize it to save the server.
-      // If file <= 9MB, send ORIGINAL to ensure AI sees maximum detail.
-      if (file.size > SAFETY_THRESHOLD_BYTES) {
-          console.warn(`File size ${file.size} > 9MB. Triggering Smart Compression.`);
-          try {
-              const resized = await smartCompressImage(rawBase64, file.type);
-              resolve(resized);
-          } catch (e) {
-              console.error("Resize failed, falling back to original", e);
-              resolve(rawBase64); // Fallback to avoid breaking the flow
-          }
-      } else {
-          // The "Golden Path" - Send original file for max AI accuracy
-          console.log(`File size ${file.size} is safe (<9MB). Sending original.`);
-          resolve(rawBase64);
-      }
+      // Handle data URL safely
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve(base64);
     };
     reader.onerror = (error) => reject(error);
   });
@@ -230,7 +134,7 @@ const crc32 = (buf: Uint8Array): number => {
     return (crc ^ (-1)) >>> 0;
 };
 
-// --- XMP GENERATION (Encoding-Safe) ---
+// --- XMP GENERATION (Now Encoding-Safe) ---
 
 export const generateXmpPacket = (metadata: StockMetadata, mimeType: string = "image/jpeg"): string => {
   const sanitize = (str: string) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
